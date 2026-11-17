@@ -1,6 +1,8 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from . import storage
 from .config import settings
@@ -8,6 +10,8 @@ from .config import settings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("app")
+
+PUBLIC_DIR = Path(__file__).resolve().parent.parent / "public"
 
 
 app = FastAPI(title="Rivals Skins")
@@ -64,3 +68,6 @@ def status():
         "unmatched": state.get("unmatched", []),
     }
 
+
+# mounted last so it does not shadow /api
+app.mount("/", StaticFiles(directory=PUBLIC_DIR, html=True), name="public")
