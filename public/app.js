@@ -8,12 +8,17 @@
   const plural = (n, one, few, many) => (n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
   const T = {
     pl: {
-      search: 'Szukaj bohatera', all: 'Wszyscy', back: 'Wróć',
+      heroesNav: 'Bohaterowie',
+      cart: 'Koszyk', search: 'Szukaj bohatera', all: 'Wszyscy', back: 'Wróć',
       roles: { Vanguard: 'Vanguard', Duelist: 'Duelist', Strategist: 'Strategist' },
       skinsCount: (n) => `${n} ${plural(n, 'skin', 'skiny', 'skinów')}`,
       costumes: 'Kostiumy', recolors: 'Recolory', anyRarity: 'Każda rzadkość',
+      add: 'Do koszyka', inCart: 'W koszyku',
       noHeroes: 'Żaden bohater nie pasuje do wyszukiwania.',
       noSkins: 'Brak skinów dla tego filtra.',
+      emptyCart: 'Koszyk jest pusty. Wybierz bohatera i dodaj skiny, które chcesz kupić.',
+      browse: 'Przeglądaj bohaterów',
+      clearCart: 'Wyczyść koszyk', confirmClearCart: 'Usunąć wszystkie skiny z koszyka?',
       loading: 'Wczytuję skiny…',
       noData: 'Nie ma jeszcze danych. Pierwsze pobieranie z wiki trwa kilka minut – odśwież stronę za chwilę.',
       error: 'Nie udało się wczytać danych z serwera.', retry: 'Spróbuj ponownie',
@@ -21,12 +26,17 @@
       credits: 'Dane: <a href="https://marvelrivals.fandom.com" target="_blank" rel="noopener">Marvel Rivals Wiki</a> (CC BY-SA). Aplikacja fanowska, niezwiązana z NetEase ani Marvel.',
     },
     en: {
-      search: 'Search heroes', all: 'All', back: 'Back',
+      heroesNav: 'Heroes',
+      cart: 'Cart', search: 'Search heroes', all: 'All', back: 'Back',
       roles: { Vanguard: 'Vanguard', Duelist: 'Duelist', Strategist: 'Strategist' },
       skinsCount: (n) => `${n} ${n === 1 ? 'skin' : 'skins'}`,
       costumes: 'Costumes', recolors: 'Recolors', anyRarity: 'Any rarity',
+      add: 'Add to cart', inCart: 'In cart',
       noHeroes: 'No hero matches your search.',
       noSkins: 'No skins match this filter.',
+      emptyCart: 'Your cart is empty. Pick a hero and add the skins you want to buy.',
+      browse: 'Browse heroes',
+      clearCart: 'Clear cart', confirmClearCart: 'Remove all skins from the cart?',
       loading: 'Loading skins…',
       noData: 'No data yet. The first download from the wiki takes a few minutes – refresh shortly.',
       error: 'Could not load data from the server.', retry: 'Try again',
@@ -39,6 +49,8 @@
   const ROLE_ORDER = ['Vanguard', 'Duelist', 'Strategist'];
   const $ = (id) => document.getElementById(id);
   const view = $('view');
+  $('nav-cart-label').textContent = T.cart;
+  $('nav-heroes-label').textContent = T.heroesNav;
   $('credits').innerHTML = T.credits;
 
   const h = (tag, attrs = {}, ...children) => {
@@ -63,6 +75,14 @@
     return i;
   };
 
+  // --- Cart (localStorage) ---
+  const CART_KEY = 'wishlist';
+  const cart = {
+    set: new Set(),
+    load() { try { return JSON.parse(localStorage.getItem(CART_KEY) || '[]'); } catch { return []; } },
+    save() { try { localStorage.setItem(CART_KEY, JSON.stringify([...this.set])); } catch {} },
+  };
+
   // --- State ---
   let data = { heroes: [], skins: [] };
   let heroesById = new Map();
@@ -70,16 +90,65 @@
   let skinsById = new Map();
   const ui = { role: '', query: '', tab: {}, rarity: {} };
 
-  // --- Skin card ---
-  function skinCard(s) {
-    const tags = [s.theme, s.source].filter(Boolean);
-    return h('article', { class: 'skin', 'data-rarity': rkey(s.rarity) },
-      h('div', { class: 'art' },
-        img(s.image, s.name, () => h('span', {})),
-        s.rarity ? h('span', { class: 'rarity' }, s.rarity) : null),
-      h('div', { class: 'body' },
-        h('h3', {}, s.name),
-        tags.length ? h('div', { class: 'tags' }, tags.map((t) => h('span', { class: 'tag' }, t))) : null));
+  const cartItems = () => [...cart.set].filter((id) => skinsById.has(id));
+  function updateCount() { $('nav-cart-count').textContent = cartItems().length || ''; }
+
+  function setInCart(id, on) {
+    if (on) cart.set.add(id); else cart.set.delete(id);
+    cart.save();
+    updateCount();
+  }
+
+  // --- Skin card (hero page and cart) ---
+  function skinCard(s, { showHero = false, onChange } = {}) {
+    const card = h('article', { class: 'skin', 'data-rarity': rkey(s.rarity) });
+    const draw = () => {
+      const inCart = cart.set.has(s.id);
+      const tags = [s.theme, s.source].filter(Boolean);
+      const toggle = () => { setInCart(s.id, !inCart); onChange ? onChange() : draw(); };
+
+      card.replaceChildren(
+        h('div', { class: 'art' },
+          img(s.image, s.name, () => h('span', {})),
+          s.rarity ? h('span', { class: 'rarity' }, s.rarity) : null),
+        h('div', { class: 'body' },
+          showHero ? h('a', { class: 'skin-hero', href: `#/hero/${s.heroId}` }, heroesById.get(s.heroId)?.name || s.heroName) : null,
+          h('h3', {}, s.name),
+          tags.length ? h('div', { class: 'tags' }, tags.map((t) => h('span', { class: 'tag' }, t))) : null,
+          h('div', { class: 'actions' },
+            h('button', { class: `btn${inCart ? ' in-cart' : ''}`, type: 'button', 'aria-pressed': String(inCart), onclick: toggle },
+              inCart ? `✓ ${T.inCart}` : T.add))));
+    };
+    draw();
+    return card;
+  }
+
+  // --- Cart page ---
+  function renderCart() {
+    const items = cartItems().map((id) => skinsById.get(id))
+      .sort((a, b) => (heroesById.get(a.heroId)?.name || a.heroName).localeCompare(heroesById.get(b.heroId)?.name || b.heroName) || byRarity(a, b));
+
+    const counts = {};
+    items.forEach((s) => { counts[s.rarity || '?'] = (counts[s.rarity || '?'] || 0) + 1; });
+
+    const clearCart = () => {
+      if (!confirm(T.confirmClearCart)) return;
+      cart.set.clear(); cart.save(); updateCount(); renderCart();
+    };
+
+    view.replaceChildren(
+      h('h1', { class: 'page-title' }, T.cart),
+      ...(items.length
+        ? [
+            h('p', { class: 'summary' },
+              Object.entries(counts).sort((a, b) => RARITY_ORDER.indexOf(rkey(a[0])) - RARITY_ORDER.indexOf(rkey(b[0])))
+                .map(([r, n]) => h('span', { class: 'sum-item', 'data-rarity': rkey(r) }, `${r}: ${n}`)),
+              h('button', { class: 'link', type: 'button', onclick: clearCart }, T.clearCart)),
+            h('section', { class: 'skins' }, items.map((s) => skinCard(s, { showHero: true, onChange: renderCart }))),
+          ]
+        : [h('div', { class: 'status' },
+            h('p', {}, T.emptyCart),
+            h('a', { class: 'btn ghost', href: '#/' }, T.browse))]));
   }
 
   // --- Heroes ---
@@ -171,12 +240,15 @@
     window.scrollTo(0, 0);
   }
 
-  // --- Routing: #/ (heroes), #/hero/<id> ---
+  // --- Routing: #/ (heroes), #/hero/<id>, #/cart ---
   let routing = false;
   function route() {
     const hash = location.hash.replace(/^#/, '') || '/';
     const m = hash.match(/^\/hero\/([^/]+)$/);
+    const section = hash === '/cart' ? 'cart' : 'heroes';
+    document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.section === section));
     if (m) renderHero(decodeURIComponent(m[1]));
+    else if (hash === '/cart') { renderCart(); window.scrollTo(0, 0); }
     else renderHeroes();
   }
 
@@ -190,6 +262,8 @@
       skinsById = new Map(data.skins.map((s) => [s.id, s]));
       skinsByHero = new Map();
       for (const s of data.skins) { if (!skinsByHero.has(s.heroId)) skinsByHero.set(s.heroId, []); skinsByHero.get(s.heroId).push(s); }
+      cart.set = new Set(cart.load());
+      updateCount();
       if (!data.heroes.length) { view.replaceChildren(h('p', { class: 'status' }, T.noData)); return; }
       if (!routing) { window.addEventListener('hashchange', route); routing = true; }
       route();

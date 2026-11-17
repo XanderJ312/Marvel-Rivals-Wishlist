@@ -23,6 +23,7 @@ html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 400 15px/1.45 var(--body);
+  padding-bottom: calc(64px + env(safe-area-inset-bottom)); /* room for the bottom nav */
 }
 a { color: inherit; }
 button { font: inherit; color: inherit; }
@@ -39,6 +40,25 @@ img { display: block; max-width: 100%; }
   display: inline-flex; align-items: center; gap: 10px; text-decoration: none;
   font: italic 800 22px/1 var(--display); letter-spacing: .01em;
 }
+.count {
+  min-width: 20px; padding: 1px 6px; border-radius: 999px; text-align: center;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; line-height: 18px;
+}
+.count:empty { display: none; }
+
+/* --- Bottom nav --- */
+.nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: grid; grid-template-columns: 1fr 1fr;
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+  background: var(--bg); border-top: 1px solid var(--line);
+}
+.nav a {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px; border-radius: 10px; text-decoration: none; color: var(--muted); font-weight: 600;
+}
+.nav a[aria-current] { color: var(--text); background: var(--surface); }
+.nav a[aria-current] svg { color: var(--accent); }
 
 main { padding: 16px; max-width: 1100px; margin: 0 auto; outline: none; }
 .status { color: var(--muted); text-align: center; padding: 48px 16px; max-width: 46ch; margin: 0 auto; }
@@ -133,13 +153,30 @@ main { padding: 16px; max-width: 1100px; margin: 0 auto; outline: none; }
 .skin .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-size: 12px; color: var(--muted); }
 .tag + .tag::before { content: "/ "; opacity: .6; }
+.skin .actions { margin-top: auto; padding-top: 8px; }
+.skin-hero {
+  font: italic 800 15px/1 var(--display); text-transform: uppercase; text-decoration: none;
+  color: var(--muted);
+}
 
 .btn {
   width: 100%; white-space: nowrap; border: 0; border-radius: 9px; padding: 9px 10px; cursor: pointer;
   background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px;
 }
+.btn.in-cart { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1.5px var(--line); }
 .btn.ghost { width: auto; background: var(--surface); color: var(--text); }
 
+/* --- Cart --- */
+.page-title { margin: 4px 0 12px; font: italic 800 34px/1 var(--display); text-transform: uppercase; }
+.summary { color: var(--muted); margin: 0 0 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; font-size: 14px; }
+.sum-item::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px;
+  background: var(--default); vertical-align: 1px;
+}
+.sum-item[data-rarity="legendary"]::before { background: var(--legendary); }
+.sum-item[data-rarity="epic"]::before { background: var(--epic); }
+.sum-item[data-rarity="rare"]::before { background: var(--rare); }
+.summary .link { margin-left: auto; border: 0; background: none; color: var(--muted); cursor: pointer; text-decoration: underline; padding: 4px 0; }
 .status .btn.ghost { display: inline-block; text-decoration: none; }
 
 .credits { padding: 8px 16px 24px; text-align: center; color: var(--muted); font-size: 12px; }
