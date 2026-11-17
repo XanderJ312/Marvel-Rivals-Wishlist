@@ -64,7 +64,7 @@
     for (const c of children.flat(3)) if (c != null && c !== false) el.append(c);
     return el;
   };
-  const norm = (s) => (s || '').toLowerCase();
+  const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const rkey = (r) => norm(r).replace(/[^a-z]/g, '') || 'default';
   const byRarity = (a, b) => (RARITY_ORDER.indexOf(rkey(a.rarity)) + 1 || 50) - (RARITY_ORDER.indexOf(rkey(b.rarity)) + 1 || 50) || a.name.localeCompare(b.name);
 
