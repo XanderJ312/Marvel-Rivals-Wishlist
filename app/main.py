@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from . import storage, updater
+from . import storage, telegram, updater
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -20,7 +20,7 @@ PUBLIC_DIR = Path(__file__).resolve().parent.parent / "public"
 async def lifespan(app: FastAPI):
     if settings.wiki_contact == "not-set":
         log.warning("Set WIKI_CONTACT in .env (contact sent to the wiki in the User-Agent)")
-    tasks = []
+    tasks = [asyncio.create_task(telegram.run())]
     if settings.scheduler_enabled:
         tasks.append(asyncio.create_task(updater.scheduler_loop()))
     yield
@@ -82,6 +82,7 @@ def status():
         "heroesFailedAt": state.get("heroesFailedAt"),
         "skinsFailedAt": state.get("skinsFailedAt"),
         "unmatched": state.get("unmatched", []),
+        "telegram": telegram.state,
     }
 
 

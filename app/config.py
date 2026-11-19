@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     heroes_day_of_month: int = 15
     scheduler_enabled: bool = True
 
+    # Telegram (optional, without a token the app works in the browser only)
+    telegram_bot_token: str = ""
+    public_url: str = ""            # permanent HTTPS URL, empty = use the Cloudflare quick tunnel
+    tunnel_metrics_url: str = ""    # set in docker-compose.yml
+    menu_button_text: str = "Skins"
+    telegram_api_base: str = "https://api.telegram.org"
+
     @property
     def api_url(self) -> str:
         return self.wiki_base + "/api.php"
