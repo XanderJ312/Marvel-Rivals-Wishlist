@@ -12,6 +12,12 @@ from . import storage
 from .config import settings
 from .wiki import Wiki, WikiError
 
+import logging
+import os
+from urllib.parse import unquote, urlparse
+
+from bs4 import BeautifulSoup
+
 log = logging.getLogger("skins")
 
 PREFIX = "Template:COSMETICS - "
@@ -120,10 +126,57 @@ def parse_template(html: str, hero_id: str, hero_name: str) -> list[dict]:
                 "theme": _icon_label(caption, ".charcat-label img", "Theme Icon - "),
                 "source": _icon_label(caption, ".charcat-icons img", "Source Icon - "),
                 "cost": cost or None,
-                "image": _img_url(item),
+                "imageRemote": _img_url(item),
+                "image": None,  # local path, filled in by sync_images()
                 "wikiUrl": settings.wiki_base + link["href"] if link and link.get("href") else None,
             })
     return skins
+
+
+# --- Images ---
+async def sync_images(wiki: Wiki, skins: list[dict], known: dict[str, str]) -> dict[str, str]:
+    """Download skin images to data/images/skins/, skipping unchanged ones.
+
+    Fandom blocks hotlinking, so images are served by this app.
+    `known` maps file name -> wiki URL from the previous run. Wiki URLs contain
+    ?cb=<timestamp>, so a changed image always has a new URL.
+    """
+    result: dict[str, str] = {}
+    downloaded = failed = 0
+    for s in skins:
+        # older data stored the wiki URL in "image"
+        remote = s.get("imageRemote") or (s.get("image") if (s.get("image") or "").startswith("http") else None)
+        s["imageRemote"] = remote
+        s["image"] = None
+        if not remote:
+            continue
+        ext = os.path.splitext(unquote(urlparse(remote).path.split("/revision/")[0]))[1].lower() or ".png"
+        name = f"{s['id']}{ext}"
+        rel = f"images/skins/{name}"
+        if not (storage.path(rel).exists() and known.get(name) == remote):
+            try:
+                storage.write_bytes(rel, await wiki.download(remote))
+                downloaded += 1
+                if downloaded % 50 == 0:
+                    log.info("Downloaded %d skin images so far", downloaded)
+            except WikiError as e:
+                failed += 1
+                log.warning("Image for %s (%s) unavailable: %s, will retry on the next update",
+                            s["name"], s["heroName"], e)
+                continue
+        s["image"] = "/" + rel
+        result[name] = remote
+
+    removed = 0
+    folder = storage.path("images/skins")
+    if folder.exists():
+        for f in folder.iterdir():  # remove images of skins that are gone from the wiki
+            if f.is_file() and f.name not in result and not f.name.endswith(".tmp"):
+                f.unlink()
+                removed += 1
+    if downloaded or failed or removed:
+        log.info("Skin images: %d downloaded, %d failed, %d removed", downloaded, failed, removed)
+    return result
 
 
 # --- Update ---
@@ -173,6 +226,7 @@ async def update_skins(wiki: Wiki, heroes: list[dict], full: bool = False) -> li
         log.info("%s: %d skins", hero["name"], len(parsed))
 
     skins = [s for hid in sorted(by_hero) if hid in current_ids for s in by_hero[hid]]
+    state["images"] = await sync_images(wiki, skins, state.get("images", {}))
     storage.write_json(storage.SKINS_FILE, {"updatedAt": storage.now_iso(), "skins": skins})
     state["templates"] = new_known
     storage.write_json(storage.STATE_FILE, state)

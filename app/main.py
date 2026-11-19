@@ -69,5 +69,7 @@ def status():
     }
 
 
+(settings.data_dir / "images").mkdir(parents=True, exist_ok=True)
+app.mount("/images", StaticFiles(directory=settings.data_dir / "images"), name="images")
 # mounted last so it does not shadow /api
 app.mount("/", StaticFiles(directory=PUBLIC_DIR, html=True), name="public")

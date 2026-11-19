@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     wiki_base: str = "https://marvelrivals.fandom.com"
     request_delay: float = 1.0      # seconds between API requests
+    image_delay: float = 0.3        # seconds between image downloads
 
     @property
     def api_url(self) -> str:

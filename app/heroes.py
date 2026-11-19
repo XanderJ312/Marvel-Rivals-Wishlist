@@ -1,7 +1,9 @@
 """Hero list from the wiki "Heroes" page: name, role, color and default skin image."""
 
 import logging
+import os
 import re
+from urllib.parse import unquote, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -57,14 +59,36 @@ def parse_heroes(html: str) -> list[dict]:
     return heroes
 
 
+async def _download_images(wiki: Wiki, heroes: list[dict], previous: dict[str, dict]):
+    """Download hero images that are new or changed on the wiki."""
+    for h in heroes:
+        url = h["imageRemote"]
+        if not url:
+            h["image"] = None
+            continue
+        ext = os.path.splitext(unquote(urlparse(url).path.split("/revision/")[0]))[1] or ".png"
+        rel = f"images/heroes/{h['id']}{ext.lower()}"
+        old = previous.get(h["id"], {})
+        if storage.path(rel).exists() and old.get("imageRemote") == url:
+            h["image"] = "/" + rel
+            continue
+        try:
+            storage.write_bytes(rel, await wiki.download(url))
+            h["image"] = "/" + rel
+            log.info("Downloaded image: %s", h["name"])
+        except WikiError as e:
+            log.warning("Image for %s unavailable (%s), using the wiki URL", h["name"], e)
+            h["image"] = url
+
+
 async def update_heroes(wiki: Wiki) -> list[dict]:
     log.info("Fetching the hero list from the wiki")
     html = await wiki.parse_html("Heroes")
     heroes = parse_heroes(html)
     if len(heroes) < 10:  # the page layout probably changed, keep the old data
         raise WikiError(f"Only {len(heroes)} heroes found on the Heroes page, aborting")
-    for h in heroes:
-        h["image"] = h["imageRemote"]
+    previous = {h["id"]: h for h in (storage.read_json(storage.HEROES_FILE, {}) or {}).get("heroes", [])}
+    await _download_images(wiki, heroes, previous)
     heroes.sort(key=lambda h: h["name"].lower())
     storage.write_json(storage.HEROES_FILE, {"updatedAt": storage.now_iso(), "heroes": heroes})
     log.info("Heroes: %d", len(heroes))

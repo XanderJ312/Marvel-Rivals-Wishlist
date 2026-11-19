@@ -92,6 +92,22 @@ class Wiki:
         data = await self.api(action="parse", page=page, prop="text", disablelimitreport="1")
         return data["parse"]["text"]
 
+    async def download(self, url: str) -> bytes:
+        """Download an image from the wiki CDN (same throttling as API calls)."""
+        for attempt in range(1, 4):
+            await self._throttle(settings.image_delay)
+            try:
+                r = await self._client.get(url)
+                if r.status_code == 200:
+                    return r.content
+                if r.status_code in (429, 503):
+                    await asyncio.sleep(_retry_after(r, default=5 * attempt))
+                    continue
+                raise WikiError(f"HTTP {r.status_code} while downloading an image")
+            except httpx.TransportError:
+                await asyncio.sleep(3 * attempt)
+        raise WikiError("Image download failed")
+
 
 def _retry_after(r: httpx.Response, default: int) -> int:
     try:
