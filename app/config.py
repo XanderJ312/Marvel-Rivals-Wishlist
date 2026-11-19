@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     request_delay: float = 1.0      # seconds between API requests
     image_delay: float = 0.3        # seconds between image downloads
 
+    # Heroes are refreshed monthly on this day, skins daily
+    heroes_day_of_month: int = 15
+    scheduler_enabled: bool = True
+
     @property
     def api_url(self) -> str:
         return self.wiki_base + "/api.php"

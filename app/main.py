@@ -1,10 +1,12 @@
+import asyncio
+import contextlib
 import logging
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from . import storage
+from . import storage, updater
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -14,7 +16,19 @@ log = logging.getLogger("app")
 PUBLIC_DIR = Path(__file__).resolve().parent.parent / "public"
 
 
-app = FastAPI(title="Rivals Skins")
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.wiki_contact == "not-set":
+        log.warning("Set WIKI_CONTACT in .env (contact sent to the wiki in the User-Agent)")
+    tasks = []
+    if settings.scheduler_enabled:
+        tasks.append(asyncio.create_task(updater.scheduler_loop()))
+    yield
+    for t in tasks:
+        t.cancel()
+
+
+app = FastAPI(title="Rivals Skins", lifespan=lifespan)
 
 _cache: dict = {"key": None, "data": None}
 
@@ -65,6 +79,8 @@ def status():
         "skins": len(c["skins"]),
         "heroesUpdatedAt": c["heroesUpdatedAt"],
         "skinsUpdatedAt": c["skinsUpdatedAt"],
+        "heroesFailedAt": state.get("heroesFailedAt"),
+        "skinsFailedAt": state.get("skinsFailedAt"),
         "unmatched": state.get("unmatched", []),
     }
 
