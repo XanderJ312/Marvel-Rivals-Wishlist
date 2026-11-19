@@ -1,5 +1,6 @@
 (() => {
   const tg = window.Telegram?.WebApp;
+  const inTelegram = !!tg?.initData;
   if (tg) { tg.ready(); tg.expand(); }
 
   // --- i18n ---
@@ -75,13 +76,31 @@
     return i;
   };
 
-  // --- Cart (localStorage) ---
-  const CART_KEY = 'wishlist';
-  const cart = {
-    set: new Set(),
-    load() { try { return JSON.parse(localStorage.getItem(CART_KEY) || '[]'); } catch { return []; } },
-    save() { try { localStorage.setItem(CART_KEY, JSON.stringify([...this.set])); } catch {} },
-  };
+  // --- Cart ---
+  // Telegram CloudStorage (values are limited to 4096 chars, so lists are chunked), localStorage outside Telegram.
+  const cloud = inTelegram && tg.CloudStorage && tg.isVersionAtLeast?.('6.9') ? tg.CloudStorage : null;
+  const withTimeout = (p, ms, fallback) => Promise.race([p, new Promise((r) => setTimeout(() => r(fallback), ms))]);
+  const makeStore = (key) => ({
+    async load() {
+      if (!cloud) { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } }
+      const get = (keys) => new Promise((res) => cloud.getItems(keys, (err, v) => res(err ? {} : v || {})));
+      const head = await withTimeout(get([`${key}_n`]), 4000, {});
+      const n = Number(head[`${key}_n`] || 0);
+      if (!n) return [];
+      const parts = await withTimeout(get(Array.from({ length: n }, (_, i) => `${key}_${i}`)), 4000, {});
+      const joined = Array.from({ length: n }, (_, i) => parts[`${key}_${i}`] || '').join('');
+      return joined ? joined.split(',') : [];
+    },
+    async save(ids) {
+      if (!cloud) { try { localStorage.setItem(key, JSON.stringify(ids)); } catch {} return; }
+      const s = ids.join(',');
+      const chunks = s ? s.match(/[\s\S]{1,4000}/g) : [];
+      const set = (k, v) => new Promise((res) => cloud.setItem(k, v, () => res()));
+      await Promise.all(chunks.map((c, i) => set(`${key}_${i}`, c)));
+      await set(`${key}_n`, String(chunks.length));
+    },
+  });
+  const cart = { set: new Set(), store: makeStore(cloud ? 'wish' : 'wishlist'), timer: null };
 
   // --- State ---
   let data = { heroes: [], skins: [] };
@@ -93,9 +112,20 @@
   const cartItems = () => [...cart.set].filter((id) => skinsById.has(id));
   function updateCount() { $('nav-cart-count').textContent = cartItems().length || ''; }
 
+  function flush() { clearTimeout(cart.timer); cart.timer = null; cart.store.save([...cart.set]); }
+  function persist() {
+    clearTimeout(cart.timer);
+    cart.timer = setTimeout(flush, 150); // debounce: several quick clicks = one save
+  }
+  // save pending changes if the app is closed right after a click
+  const flushPending = () => cart.timer && flush();
+  window.addEventListener('pagehide', flushPending);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushPending());
+
   function setInCart(id, on) {
     if (on) cart.set.add(id); else cart.set.delete(id);
-    cart.save();
+    persist();
+    tg?.HapticFeedback?.impactOccurred?.('light');
     updateCount();
   }
 
@@ -132,8 +162,9 @@
     items.forEach((s) => { counts[s.rarity || '?'] = (counts[s.rarity || '?'] || 0) + 1; });
 
     const clearCart = () => {
-      if (!confirm(T.confirmClearCart)) return;
-      cart.set.clear(); cart.save(); updateCount(); renderCart();
+      const doIt = () => { cart.set.clear(); persist(); updateCount(); renderCart(); };
+      if (inTelegram && tg.showConfirm) tg.showConfirm(T.confirmClearCart, (ok) => ok && doIt());
+      else if (confirm(T.confirmClearCart)) doIt();
     };
 
     view.replaceChildren(
@@ -230,8 +261,8 @@
     }, tabLabel(t)))) : null;
 
     view.replaceChildren(
-      h('header', { class: 'banner has-back', style: { '--hero': hero.color || '' } },
-        h('button', { class: 'back', type: 'button', onclick: () => history.back() }, `‹ ${T.back}`),
+      h('header', { class: `banner${inTelegram ? '' : ' has-back'}`, style: { '--hero': hero.color || '' } },
+        inTelegram ? null : h('button', { class: 'back', type: 'button', onclick: () => history.back() }, `‹ ${T.back}`),
         h('div', {}, h('h1', {}, hero.name), h('p', {}, sub)),
         img(hero.image, '', () => h('span', {}))),
       h('div', { class: 'tools' }, tabs, rarityChips),
@@ -250,19 +281,21 @@
     if (m) renderHero(decodeURIComponent(m[1]));
     else if (hash === '/cart') { renderCart(); window.scrollTo(0, 0); }
     else renderHeroes();
+    if (inTelegram) (m ? tg.BackButton.show() : tg.BackButton.hide());
   }
+  if (inTelegram) tg.BackButton.onClick(() => (history.length > 1 ? history.back() : (location.hash = '#/')));
 
   async function init() {
     view.replaceChildren(h('p', { class: 'status' }, T.loading));
     try {
-      const res = await fetch('api/catalog');
+      const [res, cartIds] = await Promise.all([fetch('api/catalog'), cart.store.load()]);
       if (!res.ok) throw new Error(res.status);
       data = await res.json();
       heroesById = new Map(data.heroes.map((x) => [x.id, x]));
       skinsById = new Map(data.skins.map((s) => [s.id, s]));
       skinsByHero = new Map();
       for (const s of data.skins) { if (!skinsByHero.has(s.heroId)) skinsByHero.set(s.heroId, []); skinsByHero.get(s.heroId).push(s); }
-      cart.set = new Set(cart.load());
+      cart.set = new Set(cartIds);
       updateCount();
       if (!data.heroes.length) { view.replaceChildren(h('p', { class: 'status' }, T.noData)); return; }
       if (!routing) { window.addEventListener('hashchange', route); routing = true; }
