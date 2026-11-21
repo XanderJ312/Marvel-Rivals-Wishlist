@@ -9,15 +9,18 @@
   const plural = (n, one, few, many) => (n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
   const T = {
     pl: {
-      heroesNav: 'Bohaterowie',
-      cart: 'Koszyk', search: 'Szukaj bohatera', all: 'Wszyscy', back: 'Wróć',
+      mySkins: 'Moje skiny', heroesNav: 'Bohaterowie',
+      cart: 'Koszyk', owned: 'Mam', search: 'Szukaj bohatera', all: 'Wszyscy', back: 'Wróć',
       roles: { Vanguard: 'Vanguard', Duelist: 'Duelist', Strategist: 'Strategist' },
       skinsCount: (n) => `${n} ${plural(n, 'skin', 'skiny', 'skinów')}`,
+      ownedOf: (o, n) => `masz ${o} z ${n}`,
       costumes: 'Kostiumy', recolors: 'Recolory', anyRarity: 'Każda rzadkość',
-      add: 'Do koszyka', inCart: 'W koszyku',
+      add: 'Do koszyka', inCart: 'W koszyku', have: 'Mam', haveIt: 'Masz', notHave: 'Nie mam',
+      markOwned: (name) => `Oznacz „${name}” jako posiadany`,
       noHeroes: 'Żaden bohater nie pasuje do wyszukiwania.',
       noSkins: 'Brak skinów dla tego filtra.',
       emptyCart: 'Koszyk jest pusty. Wybierz bohatera i dodaj skiny, które chcesz kupić.',
+      emptyOwned: 'Nie masz jeszcze oznaczonych skinów. Na stronie bohatera kliknij „Mam” przy skinach, które już posiadasz.',
       browse: 'Przeglądaj bohaterów',
       clearCart: 'Wyczyść koszyk', confirmClearCart: 'Usunąć wszystkie skiny z koszyka?',
       loading: 'Wczytuję skiny…',
@@ -27,15 +30,18 @@
       credits: 'Dane: <a href="https://marvelrivals.fandom.com" target="_blank" rel="noopener">Marvel Rivals Wiki</a> (CC BY-SA). Aplikacja fanowska, niezwiązana z NetEase ani Marvel.',
     },
     en: {
-      heroesNav: 'Heroes',
-      cart: 'Cart', search: 'Search heroes', all: 'All', back: 'Back',
+      mySkins: 'My skins', heroesNav: 'Heroes',
+      cart: 'Cart', owned: 'Owned', search: 'Search heroes', all: 'All', back: 'Back',
       roles: { Vanguard: 'Vanguard', Duelist: 'Duelist', Strategist: 'Strategist' },
       skinsCount: (n) => `${n} ${n === 1 ? 'skin' : 'skins'}`,
+      ownedOf: (o, n) => `${o} of ${n} owned`,
       costumes: 'Costumes', recolors: 'Recolors', anyRarity: 'Any rarity',
-      add: 'Add to cart', inCart: 'In cart',
+      add: 'Add to cart', inCart: 'In cart', have: 'Own it', haveIt: 'Owned', notHave: 'Not owned',
+      markOwned: (name) => `Mark “${name}” as owned`,
       noHeroes: 'No hero matches your search.',
       noSkins: 'No skins match this filter.',
       emptyCart: 'Your cart is empty. Pick a hero and add the skins you want to buy.',
+      emptyOwned: 'No owned skins yet. On a hero page, tap “Own it” on skins you already have.',
       browse: 'Browse heroes',
       clearCart: 'Clear cart', confirmClearCart: 'Remove all skins from the cart?',
       loading: 'Loading skins…',
@@ -50,7 +56,7 @@
   const ROLE_ORDER = ['Vanguard', 'Duelist', 'Strategist'];
   const $ = (id) => document.getElementById(id);
   const view = $('view');
-  $('nav-cart-label').textContent = T.cart;
+  $('nav-mine-label').textContent = T.mySkins;
   $('nav-heroes-label').textContent = T.heroesNav;
   $('credits').innerHTML = T.credits;
 
@@ -76,7 +82,7 @@
     return i;
   };
 
-  // --- Cart ---
+  // --- User lists: cart and owned ---
   // Telegram CloudStorage (values are limited to 4096 chars, so lists are chunked), localStorage outside Telegram.
   const cloud = inTelegram && tg.CloudStorage && tg.isVersionAtLeast?.('6.9') ? tg.CloudStorage : null;
   const withTimeout = (p, ms, fallback) => Promise.race([p, new Promise((r) => setTimeout(() => r(fallback), ms))]);
@@ -100,98 +106,129 @@
       await set(`${key}_n`, String(chunks.length));
     },
   });
-  const cart = { set: new Set(), store: makeStore(cloud ? 'wish' : 'wishlist'), timer: null };
+  // "wish" is the original cart key, kept so existing carts are not lost
+  const lists = {
+    cart: { set: new Set(), store: makeStore(cloud ? 'wish' : 'wishlist'), timer: null },
+    owned: { set: new Set(), store: makeStore(cloud ? 'own' : 'owned'), timer: null },
+  };
 
   // --- State ---
   let data = { heroes: [], skins: [] };
   let heroesById = new Map();
   let skinsByHero = new Map();
   let skinsById = new Map();
-  const ui = { role: '', query: '', tab: {}, rarity: {} };
+  const ui = { role: '', query: '', tab: {}, rarity: {}, mine: 'cart' };
 
-  const cartItems = () => [...cart.set].filter((id) => skinsById.has(id));
-  function updateCount() { $('nav-cart-count').textContent = cartItems().length || ''; }
+  const known = (name) => [...lists[name].set].filter((id) => skinsById.has(id));
+  function updateCounts() { $('nav-mine-count').textContent = known('cart').length || ''; }
 
-  function flush() { clearTimeout(cart.timer); cart.timer = null; cart.store.save([...cart.set]); }
-  function persist() {
-    clearTimeout(cart.timer);
-    cart.timer = setTimeout(flush, 150); // debounce: several quick clicks = one save
+  function flush(name) { const l = lists[name]; clearTimeout(l.timer); l.timer = null; l.store.save([...l.set]); }
+  function persist(name) {
+    const l = lists[name];
+    clearTimeout(l.timer);
+    l.timer = setTimeout(() => flush(name), 150); // debounce: several quick clicks = one save
   }
   // save pending changes if the app is closed right after a click
-  const flushPending = () => cart.timer && flush();
+  const flushPending = () => Object.keys(lists).forEach((n) => lists[n].timer && flush(n));
   window.addEventListener('pagehide', flushPending);
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushPending());
 
-  function setInCart(id, on) {
-    if (on) cart.set.add(id); else cart.set.delete(id);
-    persist();
+  function setState(id, { cart, owned }) {
+    if (owned !== undefined) {
+      if (owned) { lists.owned.set.add(id); lists.cart.set.delete(id); } // an owned skin leaves the cart
+      else lists.owned.set.delete(id);
+      persist('owned'); persist('cart');
+    }
+    if (cart !== undefined) {
+      if (cart) lists.cart.set.add(id); else lists.cart.set.delete(id);
+      persist('cart');
+    }
     tg?.HapticFeedback?.impactOccurred?.('light');
-    updateCount();
+    updateCounts();
   }
 
-  // --- Skin card (hero page and cart) ---
+  // --- Skin card (hero page and My skins) ---
   function skinCard(s, { showHero = false, onChange } = {}) {
     const card = h('article', { class: 'skin', 'data-rarity': rkey(s.rarity) });
     const draw = () => {
-      const inCart = cart.set.has(s.id);
+      const owned = lists.owned.set.has(s.id);
+      const inCart = lists.cart.set.has(s.id);
+      card.classList.toggle('is-owned', owned);
       const tags = [s.theme, s.source].filter(Boolean);
-      const toggle = () => { setInCart(s.id, !inCart); onChange ? onChange() : draw(); };
+      const change = (patch) => { setState(s.id, patch); onChange ? onChange() : draw(); };
+
+      const mainBtn = owned
+        ? h('button', { class: 'btn in-cart', type: 'button', onclick: () => change({ owned: false }) }, `✓ ${T.haveIt}`)
+        : h('button', { class: `btn${inCart ? ' in-cart' : ''}`, type: 'button', 'aria-pressed': String(inCart), onclick: () => change({ cart: !inCart }) },
+            inCart ? `✓ ${T.inCart}` : T.add);
+      // "Owned" toggle on the artwork, like a favorite button on a product photo
+      const ownToggle = h('button', {
+        class: `own-toggle${owned ? ' on' : ''}`, type: 'button', 'aria-pressed': String(owned),
+        title: owned ? T.notHave : T.markOwned(s.name), 'aria-label': owned ? `${T.notHave}: ${s.name}` : T.markOwned(s.name),
+        onclick: () => change({ owned: !owned }),
+      }, owned ? `✓ ${T.haveIt}` : T.have);
 
       card.replaceChildren(
         h('div', { class: 'art' },
           img(s.image, s.name, () => h('span', {})),
-          s.rarity ? h('span', { class: 'rarity' }, s.rarity) : null),
+          s.rarity ? h('span', { class: 'rarity' }, s.rarity) : null,
+          ownToggle),
         h('div', { class: 'body' },
           showHero ? h('a', { class: 'skin-hero', href: `#/hero/${s.heroId}` }, heroesById.get(s.heroId)?.name || s.heroName) : null,
           h('h3', {}, s.name),
           tags.length ? h('div', { class: 'tags' }, tags.map((t) => h('span', { class: 'tag' }, t))) : null,
-          h('div', { class: 'actions' },
-            h('button', { class: `btn${inCart ? ' in-cart' : ''}`, type: 'button', 'aria-pressed': String(inCart), onclick: toggle },
-              inCart ? `✓ ${T.inCart}` : T.add))));
+          h('div', { class: 'actions' }, mainBtn)));
     };
     draw();
     return card;
   }
 
-  // --- Cart page ---
-  function renderCart() {
-    const items = cartItems().map((id) => skinsById.get(id))
+  // --- Home: My skins (cart / owned) ---
+  function renderMine() {
+    const which = ui.mine;
+    const items = known(which).map((id) => skinsById.get(id))
       .sort((a, b) => (heroesById.get(a.heroId)?.name || a.heroName).localeCompare(heroesById.get(b.heroId)?.name || b.heroName) || byRarity(a, b));
 
     const counts = {};
     items.forEach((s) => { counts[s.rarity || '?'] = (counts[s.rarity || '?'] || 0) + 1; });
+    const tab = (key, label) => h('button', {
+      class: 'chip', type: 'button', role: 'tab', 'aria-selected': String(which === key), 'aria-pressed': String(which === key),
+      onclick: () => { ui.mine = key; renderMine(); },
+    }, label, h('span', { class: 'chip-count' }, String(known(key).length)));
 
     const clearCart = () => {
-      const doIt = () => { cart.set.clear(); persist(); updateCount(); renderCart(); };
+      const doIt = () => { lists.cart.set.clear(); persist('cart'); updateCounts(); renderMine(); };
       if (inTelegram && tg.showConfirm) tg.showConfirm(T.confirmClearCart, (ok) => ok && doIt());
       else if (confirm(T.confirmClearCart)) doIt();
     };
 
     view.replaceChildren(
-      h('h1', { class: 'page-title' }, T.cart),
+      h('h1', { class: 'page-title' }, T.mySkins),
+      h('div', { class: 'chips tabs', role: 'tablist' }, tab('cart', T.cart), tab('owned', T.owned)),
       ...(items.length
         ? [
             h('p', { class: 'summary' },
               Object.entries(counts).sort((a, b) => RARITY_ORDER.indexOf(rkey(a[0])) - RARITY_ORDER.indexOf(rkey(b[0])))
                 .map(([r, n]) => h('span', { class: 'sum-item', 'data-rarity': rkey(r) }, `${r}: ${n}`)),
-              h('button', { class: 'link', type: 'button', onclick: clearCart }, T.clearCart)),
-            h('section', { class: 'skins' }, items.map((s) => skinCard(s, { showHero: true, onChange: renderCart }))),
+              which === 'cart' ? h('button', { class: 'link', type: 'button', onclick: clearCart }, T.clearCart) : null),
+            h('section', { class: 'skins' }, items.map((s) => skinCard(s, { showHero: true, onChange: renderMine }))),
           ]
         : [h('div', { class: 'status' },
-            h('p', {}, T.emptyCart),
-            h('a', { class: 'btn ghost', href: '#/' }, T.browse))]));
+            h('p', {}, which === 'cart' ? T.emptyCart : T.emptyOwned),
+            h('a', { class: 'btn ghost', href: '#/heroes' }, T.browse))]));
   }
 
   // --- Heroes ---
   function heroCard(hero) {
     const all = (skinsByHero.get(hero.id) || []).filter((s) => !s.isDefault);
+    const owned = all.filter((s) => lists.owned.set.has(s.id)).length;
     return h('a', { class: 'hero-card', href: `#/hero/${hero.id}`, style: { '--hero': hero.color || '' } },
       img(hero.image, '', () => h('span', { class: 'ph' }, hero.name[0])),
       h('div', { class: 'meta' },
         h('p', { class: 'hero-name' }, hero.name),
         h('div', { class: 'hero-sub' },
           hero.role ? h('span', {}, T.roles[hero.role] || hero.role) : null,
-          h('span', {}, T.skinsCount(all.length)))));
+          h('span', {}, owned ? T.ownedOf(owned, all.length) : T.skinsCount(all.length)))));
   }
 
   function renderHeroes() {
@@ -231,7 +268,11 @@
     const grid = h('section', { class: 'skins' });
     const empty = h('p', { class: 'status', hidden: true }, T.noSkins);
     const rarityChips = h('div', { class: 'chips', role: 'group' });
-    const sub = [hero.role ? (T.roles[hero.role] || hero.role) : null, T.skinsCount(all.length)].filter(Boolean).join(', ');
+    const sub = h('p', {});
+    const updateSub = () => {
+      const owned = all.filter((s) => lists.owned.set.has(s.id)).length;
+      sub.textContent = [hero.role ? (T.roles[hero.role] || hero.role) : null, T.skinsCount(all.length), owned ? T.ownedOf(owned, all.length) : null].filter(Boolean).join(', ');
+    };
 
     const fill = () => {
       const inTab = all.filter((s) => s.type === ui.tab[id]);
@@ -244,7 +285,7 @@
       const labelOf = (k) => inTab.find((s) => rkey(s.rarity) === k)?.rarity || k;
       rarityChips.replaceChildren(...(rarities.length > 1 ? [chip('', T.anyRarity), ...rarities.map((k) => chip(k, labelOf(k)))] : []));
       const list = inTab.filter((s) => !ui.rarity[id] || rkey(s.rarity) === ui.rarity[id]).sort(byRarity);
-      grid.replaceChildren(...list.map((s) => skinCard(s)));
+      grid.replaceChildren(...list.map((s) => skinCard(s, { onChange: () => { updateSub(); fill(); } })));
       empty.hidden = list.length > 0;
     };
 
@@ -260,10 +301,11 @@
       },
     }, tabLabel(t)))) : null;
 
+    updateSub();
     view.replaceChildren(
       h('header', { class: `banner${inTelegram ? '' : ' has-back'}`, style: { '--hero': hero.color || '' } },
         inTelegram ? null : h('button', { class: 'back', type: 'button', onclick: () => history.back() }, `‹ ${T.back}`),
-        h('div', {}, h('h1', {}, hero.name), h('p', {}, sub)),
+        h('div', {}, h('h1', {}, hero.name), sub),
         img(hero.image, '', () => h('span', {}))),
       h('div', { class: 'tools' }, tabs, rarityChips),
       grid, empty);
@@ -271,32 +313,34 @@
     window.scrollTo(0, 0);
   }
 
-  // --- Routing: #/ (heroes), #/hero/<id>, #/cart ---
+  // --- Routing: #/ (my skins), #/heroes, #/hero/<id> ---
   let routing = false;
   function route() {
-    const hash = location.hash.replace(/^#/, '') || '/';
+    let hash = location.hash.replace(/^#/, '') || '/';
+    if (hash === '/cart') { ui.mine = 'cart'; history.replaceState(null, '', '#/'); hash = '/'; } // old cart URL
     const m = hash.match(/^\/hero\/([^/]+)$/);
-    const section = hash === '/cart' ? 'cart' : 'heroes';
+    const section = hash === '/' ? 'mine' : 'heroes';
     document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.section === section));
     if (m) renderHero(decodeURIComponent(m[1]));
-    else if (hash === '/cart') { renderCart(); window.scrollTo(0, 0); }
-    else renderHeroes();
+    else if (hash === '/heroes') renderHeroes();
+    else { renderMine(); window.scrollTo(0, 0); }
     if (inTelegram) (m ? tg.BackButton.show() : tg.BackButton.hide());
   }
-  if (inTelegram) tg.BackButton.onClick(() => (history.length > 1 ? history.back() : (location.hash = '#/')));
+  if (inTelegram) tg.BackButton.onClick(() => (history.length > 1 ? history.back() : (location.hash = '#/heroes')));
 
   async function init() {
     view.replaceChildren(h('p', { class: 'status' }, T.loading));
     try {
-      const [res, cartIds] = await Promise.all([fetch('api/catalog'), cart.store.load()]);
+      const [res, cartIds, ownedIds] = await Promise.all([fetch('api/catalog'), lists.cart.store.load(), lists.owned.store.load()]);
       if (!res.ok) throw new Error(res.status);
       data = await res.json();
       heroesById = new Map(data.heroes.map((x) => [x.id, x]));
       skinsById = new Map(data.skins.map((s) => [s.id, s]));
       skinsByHero = new Map();
       for (const s of data.skins) { if (!skinsByHero.has(s.heroId)) skinsByHero.set(s.heroId, []); skinsByHero.get(s.heroId).push(s); }
-      cart.set = new Set(cartIds);
-      updateCount();
+      lists.cart.set = new Set(cartIds);
+      lists.owned.set = new Set(ownedIds);
+      updateCounts();
       if (!data.heroes.length) { view.replaceChildren(h('p', { class: 'status' }, T.noData)); return; }
       if (!routing) { window.addEventListener('hashchange', route); routing = true; }
       route();
