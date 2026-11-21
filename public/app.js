@@ -117,7 +117,7 @@
   let heroesById = new Map();
   let skinsByHero = new Map();
   let skinsById = new Map();
-  const ui = { role: '', query: '', tab: {}, rarity: {}, mine: 'cart' };
+  const ui = { role: '', query: '', tab: {}, rarity: {}, mine: 'cart', heroesScroll: 0 };
 
   const known = (name) => [...lists[name].set].filter((id) => skinsById.has(id));
   function updateCounts() { $('nav-mine-count').textContent = known('cart').length || ''; }
@@ -256,6 +256,7 @@
       h('div', { class: 'tools' }, search, h('div', { class: 'chips', role: 'group' }, chip('', T.all), roles.map((r) => chip(r, T.roles[r] || r)))),
       grid, empty);
     fill();
+    requestAnimationFrame(() => window.scrollTo(0, ui.heroesScroll));
   }
 
   function renderHero(id) {
@@ -314,10 +315,13 @@
   }
 
   // --- Routing: #/ (my skins), #/heroes, #/hero/<id> ---
+  let current = '';
   let routing = false;
   function route() {
     let hash = location.hash.replace(/^#/, '') || '/';
     if (hash === '/cart') { ui.mine = 'cart'; history.replaceState(null, '', '#/'); hash = '/'; } // old cart URL
+    if (current === '/heroes') ui.heroesScroll = window.scrollY;
+    current = hash;
     const m = hash.match(/^\/hero\/([^/]+)$/);
     const section = hash === '/' ? 'mine' : 'heroes';
     document.querySelectorAll('.nav a').forEach((a) => a.toggleAttribute('aria-current', a.dataset.section === section));
