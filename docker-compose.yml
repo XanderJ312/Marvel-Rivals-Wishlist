@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      TUNNEL_METRICS_URL: http://tunnel:2000   # the app reads the tunnel URL from here
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data                       # keep data and images between restarts
+    restart: unless-stopped
+
+  # Free HTTPS tunnel for Telegram. It gets a new URL on every restart,
+  # and the app updates the bot's menu button automatically.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --protocol http2 --metrics 0.0.0.0:2000 --url http://app:8000
+    depends_on:
+      - app
+    restart: unless-stopped
