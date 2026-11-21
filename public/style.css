@@ -1,9 +1,9 @@
-/* Navy and yellow of the game menus */
+/* Telegram theme colors when available, otherwise the navy and yellow of the game menus */
 :root {
-  --bg: #1c1f3d;
-  --surface: #262a52;
-  --text: #f1f2fb;
-  --muted: #9da3c9;
+  --bg: var(--tg-theme-bg-color, #1c1f3d);
+  --surface: var(--tg-theme-secondary-bg-color, #262a52);
+  --text: var(--tg-theme-text-color, #f1f2fb);
+  --muted: var(--tg-theme-hint-color, #9da3c9);
   --accent: #ffd23f;
   --accent-ink: #1c1f3d;
   --line: color-mix(in srgb, var(--muted) 22%, transparent);
@@ -13,8 +13,8 @@
   --rare: #3d9bff;
   --default: #8a90b4;
 
-  --display: "Arial Narrow", sans-serif;
-  --body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --cut: 18px;                /* cut corner, as on the in-game hero select cards */
 }
 
@@ -40,6 +40,7 @@ img { display: block; max-width: 100%; }
   display: inline-flex; align-items: center; gap: 10px; text-decoration: none;
   font: italic 800 22px/1 var(--display); letter-spacing: .01em;
 }
+.logo { height: 32px; width: auto; }
 .count {
   min-width: 20px; padding: 1px 6px; border-radius: 999px; text-align: center;
   background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; line-height: 18px;
