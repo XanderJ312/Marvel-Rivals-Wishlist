@@ -5,18 +5,14 @@ and re-parses only the templates that changed since the previous run.
 """
 
 import logging
+import os
+from urllib.parse import unquote, urlparse
 
 from bs4 import BeautifulSoup
 
 from . import storage
 from .config import settings
 from .wiki import Wiki, WikiError
-
-import logging
-import os
-from urllib.parse import unquote, urlparse
-
-from bs4 import BeautifulSoup
 
 log = logging.getLogger("skins")
 
