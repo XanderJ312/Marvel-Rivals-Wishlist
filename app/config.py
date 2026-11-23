@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
     image_delay: float = 0.3        # seconds between image downloads
 
     # Heroes are refreshed monthly on this day, skins daily
-    heroes_day_of_month: int = 15
+    heroes_day_of_month: int = Field(15, ge=1, le=28)  # <= 28 so the day exists in every month
     scheduler_enabled: bool = True
 
     # Telegram (optional, without a token the app works in the browser only)

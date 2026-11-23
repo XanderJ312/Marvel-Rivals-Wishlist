@@ -21,6 +21,15 @@ def test_last_heroes_due(now, expected):
     assert updater.last_heroes_due(now) == expected
 
 
+def test_heroes_day_of_month_is_limited_to_days_every_month_has():
+    from pydantic import ValidationError
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(heroes_day_of_month=31)
+
+
 def test_recently_failed():
     now = datetime(2026, 11, 20, 12, 0, tzinfo=timezone.utc)
     assert updater._recently_failed({"skinsFailedAt": "2026-11-20T11:30:00+00:00"}, "skins", now)
