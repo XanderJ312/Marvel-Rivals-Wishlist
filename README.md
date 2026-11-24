@@ -6,13 +6,12 @@
 
 A Telegram Mini App with every **Marvel Rivals** skin. Browse skins by hero, add the ones you want to buy to a cart, and mark the ones you already own. Your lists sync across devices through your Telegram account.
 
-<!-- Add 2–3 screenshots to docs/ and uncomment:
 <p align="center">
   <img src="docs/heroes.png" width="260" alt="Hero list">
   <img src="docs/hero.png" width="260" alt="Hero skins">
   <img src="docs/cart.png" width="260" alt="Cart">
 </p>
--->
+
 
 ## Features
 
